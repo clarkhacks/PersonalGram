@@ -3,270 +3,293 @@ import { AuthManager, PhotoManager, getCookie, setCookie } from './utils';
 
 // Add ExecutionContext type
 declare global {
-  interface ExecutionContext {
-    waitUntil(promise: Promise<any>): void;
-    passThroughOnException(): void;
-  }
+	interface ExecutionContext {
+		waitUntil(promise: Promise<any>): void;
+		passThroughOnException(): void;
+	}
 }
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    const method = request.method;
+	async fetch(
+		request: Request,
+		env: Env,
+		ctx: ExecutionContext
+	): Promise<Response> {
+		const url = new URL(request.url);
+		const path = url.pathname;
+		const method = request.method;
 
-    // CORS headers
-    const corsHeaders = {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    };
+		// CORS headers
+		const corsHeaders = {
+			'Access-Control-Allow-Origin': '*',
+			'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+			'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+		};
 
-    // Handle CORS preflight
-    if (method === 'OPTIONS') {
-      return new Response(null, { headers: corsHeaders });
-    }
+		// Handle CORS preflight
+		if (method === 'OPTIONS') {
+			return new Response(null, { headers: corsHeaders });
+		}
 
-    const authManager = new AuthManager(env);
-    const photoManager = new PhotoManager(env);
+		const authManager = new AuthManager(env);
+		const photoManager = new PhotoManager(env);
 
-    try {
-      // Static file serving
-      if (path.startsWith('/static/') || path === '/favicon.ico') {
-        return env.STATIC.fetch(request);
-      }
+		try {
+			// Static file serving
+			if (path.startsWith('/static/') || path === '/favicon.ico') {
+				return env.STATIC.fetch(request);
+			}
 
-      // API Routes
-      if (path.startsWith('/api/')) {
-        const response = await handleApiRequest(request, env, authManager, photoManager);
-        Object.entries(corsHeaders).forEach(([key, value]) => {
-          response.headers.set(key, value);
-        });
-        return response;
-      }
+			// API Routes
+			if (path.startsWith('/api/')) {
+				const response = await handleApiRequest(
+					request,
+					env,
+					authManager,
+					photoManager
+				);
+				Object.entries(corsHeaders).forEach(([key, value]) => {
+					response.headers.set(key, value);
+				});
+				return response;
+			}
 
-      // Admin routes
-      if (path.startsWith('/admin')) {
-        return handleAdminRoute(request, env, authManager);
-      }
+			// Admin routes
+			if (path.startsWith('/admin')) {
+				return handleAdminRoute(request, env, authManager);
+			}
 
-      // Main application routes
-      return handleAppRoute(request, env);
-
-    } catch (error) {
-      console.error('Error handling request:', error);
-      return new Response('Internal Server Error', { 
-        status: 500,
-        headers: corsHeaders
-      });
-    }
-  },
+			// Main application routes
+			return handleAppRoute(request, env);
+		} catch (error) {
+			console.error('Error handling request:', error);
+			return new Response('Internal Server Error', {
+				status: 500,
+				headers: corsHeaders,
+			});
+		}
+	},
 };
 
 async function handleApiRequest(
-  request: Request,
-  env: Env,
-  authManager: AuthManager,
-  photoManager: PhotoManager
+	request: Request,
+	env: Env,
+	authManager: AuthManager,
+	photoManager: PhotoManager
 ): Promise<Response> {
-  const url = new URL(request.url);
-  const path = url.pathname;
-  const method = request.method;
+	const url = new URL(request.url);
+	const path = url.pathname;
+	const method = request.method;
 
-  // Authentication endpoints
-  if (path === '/api/auth/login' && method === 'POST') {
-    const { email, password } = await request.json();
-    
-    if (await authManager.authenticateAdmin(email, password)) {
-      const sessionId = await authManager.createSession(email);
-      const response = new Response(JSON.stringify({ success: true }), {
-        headers: { 'Content-Type': 'application/json' }
-      });
-      response.headers.set('Set-Cookie', setCookie('session', sessionId, 86400)); // 24 hours
-      return response;
-    }
-    
-    return new Response(JSON.stringify({ error: 'Invalid credentials' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
+	// Authentication endpoints
+	if (path === '/api/auth/login' && method === 'POST') {
+		const { email, password } = await request.json();
 
-  if (path === '/api/auth/logout' && method === 'POST') {
-    const sessionId = getCookie(request, 'session');
-    if (sessionId) {
-      await authManager.deleteSession(sessionId);
-    }
-    
-    const response = new Response(JSON.stringify({ success: true }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    response.headers.set('Set-Cookie', setCookie('session', '', 0));
-    return response;
-  }
+		if (await authManager.authenticateAdmin(email, password)) {
+			const sessionId = await authManager.createSession(email);
+			const response = new Response(JSON.stringify({ success: true }), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+			response.headers.set(
+				'Set-Cookie',
+				setCookie('session', sessionId, 86400)
+			); // 24 hours
+			return response;
+		}
 
-  // Initialize admin (only if no admin exists)
-  if (path === '/api/auth/init' && method === 'POST') {
-    const existingCredentials = await env.KV.get('admin:credentials');
-    if (existingCredentials) {
-      return new Response(JSON.stringify({ error: 'Admin already exists' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
+		return new Response(JSON.stringify({ error: 'Invalid credentials' }), {
+			status: 401,
+			headers: { 'Content-Type': 'application/json' },
+		});
+	}
 
-    const { email, password } = await request.json();
-    await authManager.initializeAdmin(email, password);
-    
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
+	if (path === '/api/auth/logout' && method === 'POST') {
+		const sessionId = getCookie(request, 'session');
+		if (sessionId) {
+			await authManager.deleteSession(sessionId);
+		}
 
-  // Protected routes - require authentication
-  const sessionId = getCookie(request, 'session');
-  const session = sessionId ? await authManager.validateSession(sessionId) : null;
+		const response = new Response(JSON.stringify({ success: true }), {
+			headers: { 'Content-Type': 'application/json' },
+		});
+		response.headers.set('Set-Cookie', setCookie('session', '', 0));
+		return response;
+	}
 
-  // Public photo endpoints
-  if (path === '/api/photos' && method === 'GET') {
-    const cursor = url.searchParams.get('cursor') || undefined;
-    const limit = parseInt(url.searchParams.get('limit') || '20');
-    const query = url.searchParams.get('q') || undefined;
-    const tags = url.searchParams.get('tags')?.split(',').filter(Boolean) || undefined;
+	// Initialize admin (only if no admin exists)
+	if (path === '/api/auth/init' && method === 'POST') {
+		const existingCredentials = await env.KV.get('admin:credentials');
+		if (existingCredentials) {
+			return new Response(JSON.stringify({ error: 'Admin already exists' }), {
+				status: 400,
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
 
-    let result;
-    if (query || tags) {
-      const photos = await photoManager.searchPhotos(query || '', tags, limit);
-      result = { photos, hasMore: false };
-    } else {
-      result = await photoManager.getPhotos(cursor, limit);
-    }
+		const { email, password } = await request.json();
+		await authManager.initializeAdmin(email, password);
 
-    return new Response(JSON.stringify(result), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
+		return new Response(JSON.stringify({ success: true }), {
+			headers: { 'Content-Type': 'application/json' },
+		});
+	}
 
-  // Admin-only endpoints
-  if (!session) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
+	// Protected routes - require authentication
+	const sessionId = getCookie(request, 'session');
+	const session = sessionId
+		? await authManager.validateSession(sessionId)
+		: null;
 
-  if (path === '/api/photos/upload' && method === 'POST') {
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const description = formData.get('description') as string || '';
-    const tagsString = formData.get('tags') as string || '';
-    const tags = tagsString.split(',').map(tag => tag.trim()).filter(Boolean);
+	// Public photo endpoints
+	if (path === '/api/photos' && method === 'GET') {
+		const cursor = url.searchParams.get('cursor') || undefined;
+		const limit = parseInt(url.searchParams.get('limit') || '20');
+		const query = url.searchParams.get('q') || undefined;
+		const tags =
+			url.searchParams.get('tags')?.split(',').filter(Boolean) || undefined;
 
-    if (!file) {
-      return new Response(JSON.stringify({ error: 'No file provided' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
+		let result;
+		if (query || tags) {
+			const photos = await photoManager.searchPhotos(query || '', tags, limit);
+			result = { photos, hasMore: false };
+		} else {
+			result = await photoManager.getPhotos(cursor, limit);
+		}
 
-    const fileBuffer = await file.arrayBuffer();
-    const photo = await photoManager.uploadPhoto(
-      fileBuffer,
-      file.name,
-      description,
-      tags,
-      file.type
-    );
+		return new Response(JSON.stringify(result), {
+			headers: { 'Content-Type': 'application/json' },
+		});
+	}
 
-    return new Response(JSON.stringify(photo), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
+	// Admin-only endpoints
+	if (!session) {
+		return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+			status: 401,
+			headers: { 'Content-Type': 'application/json' },
+		});
+	}
 
-  if (path.startsWith('/api/photos/') && method === 'DELETE') {
-    const photoId = path.split('/').pop();
-    if (!photoId) {
-      return new Response(JSON.stringify({ error: 'Invalid photo ID' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
+	if (path === '/api/photos/upload' && method === 'POST') {
+		const formData = await request.formData();
+		const file = formData.get('file') as File;
+		const description = (formData.get('description') as string) || '';
+		const tagsString = (formData.get('tags') as string) || '';
+		const tags = tagsString
+			.split(',')
+			.map((tag) => tag.trim())
+			.filter(Boolean);
 
-    await photoManager.deletePhoto(photoId);
-    return new Response(JSON.stringify({ success: true }), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
+		if (!file) {
+			return new Response(JSON.stringify({ error: 'No file provided' }), {
+				status: 400,
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
 
-  return new Response('Not Found', { status: 404 });
+		const fileBuffer = await file.arrayBuffer();
+		const photo = await photoManager.uploadPhoto(
+			fileBuffer,
+			file.name,
+			description,
+			tags,
+			file.type
+		);
+
+		return new Response(JSON.stringify(photo), {
+			headers: { 'Content-Type': 'application/json' },
+		});
+	}
+
+	if (path.startsWith('/api/photos/') && method === 'DELETE') {
+		const photoId = path.split('/').pop();
+		if (!photoId) {
+			return new Response(JSON.stringify({ error: 'Invalid photo ID' }), {
+				status: 400,
+				headers: { 'Content-Type': 'application/json' },
+			});
+		}
+
+		await photoManager.deletePhoto(photoId);
+		return new Response(JSON.stringify({ success: true }), {
+			headers: { 'Content-Type': 'application/json' },
+		});
+	}
+
+	return new Response('Not Found', { status: 404 });
 }
 
-async function handleAdminRoute(request: Request, env: Env, authManager: AuthManager): Promise<Response> {
-  const url = new URL(request.url);
-  const path = url.pathname;
+async function handleAdminRoute(
+	request: Request,
+	env: Env,
+	authManager: AuthManager
+): Promise<Response> {
+	const url = new URL(request.url);
+	const path = url.pathname;
 
-  // Check if admin is initialized
-  const existingCredentials = await env.KV.get('admin:credentials');
-  
-  if (!existingCredentials && path !== '/admin/setup') {
-    return new Response(getSetupPage(), {
-      headers: { 'Content-Type': 'text/html' }
-    });
-  }
+	// Check if admin is initialized
+	const existingCredentials = await env.KV.get('admin:credentials');
 
-  if (path === '/admin/setup') {
-    return new Response(getSetupPage(), {
-      headers: { 'Content-Type': 'text/html' }
-    });
-  }
+	if (!existingCredentials && path !== '/admin/setup') {
+		return new Response(getSetupPage(), {
+			headers: { 'Content-Type': 'text/html' },
+		});
+	}
 
-  // Check authentication for other admin routes
-  const sessionId = getCookie(request, 'session');
-  const session = sessionId ? await authManager.validateSession(sessionId) : null;
+	if (path === '/admin/setup') {
+		return new Response(getSetupPage(), {
+			headers: { 'Content-Type': 'text/html' },
+		});
+	}
 
-  if (!session && path !== '/admin/login') {
-    return new Response(getLoginPage(), {
-      headers: { 'Content-Type': 'text/html' }
-    });
-  }
+	// Check authentication for other admin routes
+	const sessionId = getCookie(request, 'session');
+	const session = sessionId
+		? await authManager.validateSession(sessionId)
+		: null;
 
-  if (path === '/admin/login') {
-    return new Response(getLoginPage(), {
-      headers: { 'Content-Type': 'text/html' }
-    });
-  }
+	if (!session && path !== '/admin/login') {
+		return new Response(getLoginPage(), {
+			headers: { 'Content-Type': 'text/html' },
+		});
+	}
 
-  if (path === '/admin' || path === '/admin/') {
-    return new Response(getAdminPage(), {
-      headers: { 'Content-Type': 'text/html' }
-    });
-  }
+	if (path === '/admin/login') {
+		return new Response(getLoginPage(), {
+			headers: { 'Content-Type': 'text/html' },
+		});
+	}
 
-  return new Response('Not Found', { status: 404 });
+	if (path === '/admin' || path === '/admin/') {
+		return new Response(getAdminPage(), {
+			headers: { 'Content-Type': 'text/html' },
+		});
+	}
+
+	return new Response('Not Found', { status: 404 });
 }
 
 async function handleAppRoute(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const path = url.pathname;
+	const url = new URL(request.url);
+	const path = url.pathname;
 
-  // Main application
-  if (path === '/' || path === '/photos' || path.startsWith('/photo/')) {
-    return new Response(getMainPage(), {
-      headers: { 'Content-Type': 'text/html' }
-    });
-  }
+	// Main application
+	if (path === '/' || path === '/photos' || path.startsWith('/photo/')) {
+		return new Response(getMainPage(), {
+			headers: { 'Content-Type': 'text/html' },
+		});
+	}
 
-  return new Response('Not Found', { status: 404 });
+	return new Response('Not Found', { status: 404 });
 }
 
 function getMainPage(): string {
-  return `<!DOCTYPE html>
+	return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PersonalGram</title>
-    <link href="/static/styles.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/lazysizes@5.3.2/lazysizes.min.js" async></script>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -496,13 +519,13 @@ function getMainPage(): string {
 }
 
 function getAdminPage(): string {
-  return `<!DOCTYPE html>
+	return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin - PersonalGram</title>
-    <link href="/static/styles.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 min-h-screen">
     <div class="max-w-4xl mx-auto px-4 py-8">
@@ -688,13 +711,13 @@ function getAdminPage(): string {
 }
 
 function getLoginPage(): string {
-  return `<!DOCTYPE html>
+	return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Login - PersonalGram</title>
-    <link href="/static/styles.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>>
 </head>
 <body class="bg-gray-50 min-h-screen flex items-center justify-center">
     <div class="max-w-md w-full">
@@ -750,13 +773,13 @@ function getLoginPage(): string {
 }
 
 function getSetupPage(): string {
-  return `<!DOCTYPE html>
+	return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Setup Admin - PersonalGram</title>
-    <link href="/static/styles.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-50 min-h-screen flex items-center justify-center">
     <div class="max-w-md w-full">
