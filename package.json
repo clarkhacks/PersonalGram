@@ -12,8 +12,7 @@
   },
   "dependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",
-    "bcryptjs": "^2.4.3",
-    "thumbhash": "^0.1.1"
+    "bcryptjs": "^2.4.3"
   },
   "devDependencies": {
     "tailwindcss": "^3.4.0",
