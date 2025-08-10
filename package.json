@@ -1,0 +1,23 @@
+{
+  "name": "personalgram",
+  "version": "1.0.0",
+  "description": "A CloudFlare Wrangler personal photo blog",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "npm run build:css && wrangler deploy",
+    "build:css": "tailwindcss -i ./src/styles/input.css -o ./static/styles.css --watch=false",
+    "build:css:watch": "tailwindcss -i ./src/styles/input.css -o ./static/styles.css --watch",
+    "start": "npm run build:css && wrangler dev"
+  },
+  "dependencies": {
+    "@cloudflare/workers-types": "^4.20241218.0",
+    "bcryptjs": "^2.4.3",
+    "thumbhash": "^0.1.1"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.0.0",
+    "wrangler": "^3.0.0"
+  }
+}

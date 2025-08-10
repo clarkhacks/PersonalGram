@@ -11,7 +11,7 @@ binding = "STATIC"
 
 # Vars
 [vars]
-CDN_URL = "https://cdn-galla.weckmann.me
+CDN_URL = "https://cdn-galla.weckmann.me"
 
 # Workers Logs
 # Docs: https://developers.cloudflare.com/workers/observability/logs/workers-logs/
