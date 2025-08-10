@@ -1,0 +1,28 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "personalgram"
+main = "src/index.ts"
+compatibility_date = "2024-12-05"
+compatibility_flags = ["nodejs_compat"]
+
+# Static Directory
+[assets]
+directory = "./static"
+binding = "STATIC"
+
+# Vars
+[vars]
+CDN_URL = "https://cdn-galla.weckmann.me
+
+# Workers Logs
+# Docs: https://developers.cloudflare.com/workers/observability/logs/workers-logs/
+# Configuration: https://developers.cloudflare.com/workers/observability/logs/workers-logs/#enable-workers-logs
+[observability]
+enabled = true
+
+[[kv_namespaces]]
+binding = "KV"
+id = "ef04a423277443f48d3253bb267791cb"
+
+[[r2_buckets]]
+binding = "R2"
+bucket_name = "personalgram"
