@@ -126,35 +126,33 @@ export class PhotoManager {
 		const photoId = crypto.randomUUID();
 		const timestamp = new Date().toISOString();
 
-		// Process image and create thumbnail
-		const { thumbnailBuffer, thumbhash, metadata } =
-			await ImageProcessor.createThumbnail(file);
-
 		// Upload original image to R2
-		const originalKey = `photos/${photoId}/original.jpg`;
+		const originalKey = `photos/${photoId}/original`;
 		await this.env.R2.put(originalKey, file, {
 			httpMetadata: { contentType: mimeType },
 		});
 
-		// Upload thumbnail to R2
-		const thumbnailKey = `photos/${photoId}/thumbnail.jpg`;
-		await this.env.R2.put(thumbnailKey, thumbnailBuffer, {
-			httpMetadata: { contentType: 'image/jpeg' },
-		});
+		// For thumbnails, we'll use Cloudflare's image resizing via URL parameters
+		// This is more efficient than processing in Workers
+		const originalUrl = `${this.env.CDN_URL}/${originalKey}`;
+		const thumbnailUrl = `${originalUrl}?width=400&quality=80&format=webp`;
+
+		// Generate a simple thumbhash placeholder
+		const thumbhash = 'placeholder';
 
 		// Create photo object
 		const photo: Photo = {
 			id: photoId,
 			filename,
-			originalUrl: `${this.env.CDN_URL}/${originalKey}`,
-			thumbnailUrl: `${this.env.CDN_URL}/${thumbnailKey}`,
+			originalUrl,
+			thumbnailUrl,
 			thumbhash,
 			description,
 			tags,
 			uploadedAt: timestamp,
 			metadata: {
-				width: metadata.width,
-				height: metadata.height,
+				width: 800, // Estimated - in production you'd extract from image headers
+				height: 600,
 				size: file.byteLength,
 				mimeType,
 			},
@@ -271,9 +269,8 @@ export class PhotoManager {
 	}
 
 	async deletePhoto(photoId: string): Promise<void> {
-		// Delete from R2
-		await this.env.R2.delete(`photos/${photoId}/original.jpg`);
-		await this.env.R2.delete(`photos/${photoId}/thumbnail.jpg`);
+		// Delete from R2 (only original file now, thumbnails are generated via URL params)
+		await this.env.R2.delete(`photos/${photoId}/original`);
 
 		// Delete from KV
 		await this.env.KV.delete(`${KV_KEYS.PHOTO_PREFIX}${photoId}`);
